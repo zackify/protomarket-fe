@@ -1,16 +1,17 @@
 import { defineConfig } from "@wagmi/cli";
 import { abi } from "./src/models/abi";
 import { react } from "@wagmi/cli/plugins";
-
-const PROTOMARKET_CONTRACT_ADDRESS =
-  "0x792a00e52b858e913d20b364d06cf89865ad3f9b";
+import { monadTestnet } from "wagmi/chains";
 
 export default defineConfig({
   out: "src/generated.ts",
   contracts: [
     {
       name: "protomarket",
-      address: PROTOMARKET_CONTRACT_ADDRESS,
+      address: {
+        //Add base chain and others later!
+        [monadTestnet.id]: "0x792a00e52b858e913d20b364d06cf89865ad3f9b", // Monad testnet chain ID
+      },
       abi: abi,
     },
   ],
