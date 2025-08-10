@@ -4,8 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun --hot index.html",
-    "build": "bun build ./index.html --minify --outdir=dist"
+    "dev": "bunx wagmi generate && bun --hot index.html",
+    "build": "bunx wagmi generate && bun build ./index.html --minify --outdir=dist"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.84.2",
+    "date-fns": "^4.1.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "viem": "^2.33.3",

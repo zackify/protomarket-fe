@@ -3,6 +3,8 @@ import {
   useReadProtomarketGetEventCount,
   useReadProtomarketGetEventsRange,
 } from "../generated";
+import { hexToString } from "viem";
+import { formatDistanceToNow } from "date-fns";
 
 export function ViewEvents() {
   const events = useReadProtomarketEvents({
@@ -18,6 +20,30 @@ export function ViewEvents() {
   const isLoading =
     eventCount.isLoading || eventsRange.isLoading || events.isLoading;
   const errors = [events.error, eventCount.error, eventsRange.error];
+
+  // Helper function to parse bytes32 to text
+  const parseBytes32ToText = (value: any): string => {
+    try {
+      if (typeof value === "string" && value.startsWith("0x")) {
+        return hexToString(value as `0x${string}`);
+      }
+      return String(value);
+    } catch (error) {
+      return String(value); // fallback to original value if parsing fails
+    }
+  };
+
+  // Helper function to format timestamp to time distance
+  const formatStartTime = (value: any): string => {
+    try {
+      // Convert BigInt timestamp to milliseconds (assuming it's in seconds)
+      const timestamp =
+        typeof value === "bigint" ? Number(value) * 1000 : Number(value) * 1000;
+      return formatDistanceToNow(new Date(timestamp), { addSuffix: true });
+    } catch (error) {
+      return String(value); // fallback to original value if parsing fails
+    }
+  };
 
   return (
     <>
@@ -35,14 +61,25 @@ export function ViewEvents() {
         });
       })}
       <div>
-        <div>Events: {events.data}</div>
         <div>Event Count: {eventCount.data}</div>
         <div>Events Range: </div>
-        {eventsRange.data?.map((ev) =>
+        {eventsRange.data?.map((ev, index) =>
           Object.entries(ev).map(([key, value]) => {
+            let displayValue = String(value);
+
+            // Parse outcomeA and outcomeB from bytes32 to text
+            if (key === "outcomeA" || key === "outcomeB") {
+              displayValue = parseBytes32ToText(value);
+            }
+
+            // Format startTime as time distance
+            if (key === "startTime") {
+              displayValue = formatStartTime(value);
+            }
+
             return (
-              <div key={key}>
-                {key}: {String(value)}
+              <div key={`${index}-${key}`}>
+                {key}: {displayValue}
               </div>
             );
           })

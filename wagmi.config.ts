@@ -10,7 +10,7 @@ export default defineConfig({
   contracts: [
     {
       name: "protomarket",
-      address: "0x792a00e52b858e913d20b364d06cf89865ad3f9b",
+      address: PROTOMARKET_CONTRACT_ADDRESS,
       abi: abi,
     },
   ],
