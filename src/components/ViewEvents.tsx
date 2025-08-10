@@ -11,7 +11,18 @@ export function ViewEvents() {
     args: [0n],
   }); // errors if arg bigint is greater than total amount of events size
   const eventCount = useReadProtomarketGetEventCount();
-  const eventsRange = useReadProtomarketGetEventsRange({ args: [0n, 1n] }); // errors if end arg bigint is greater than total amount of events
+
+  // Calculate the range to show last 20 events (or all if fewer than 20)
+  const startIndex = eventCount.data
+    ? Number(eventCount.data) >= 20
+      ? BigInt(Number(eventCount.data) - 20)
+      : 0n
+    : 0n;
+  const endIndex = eventCount.data ? eventCount.data : 2n;
+
+  const eventsRange = useReadProtomarketGetEventsRange({
+    args: [startIndex, endIndex],
+  }); // errors if end arg bigint is greater than total amount of events
 
   //   console.log(events);
   //   console.log(eventCount);

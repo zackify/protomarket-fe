@@ -6,9 +6,34 @@ import { ViewEvents } from "./ViewEvents";
 
 function App() {
   const [count, setCount] = useState(0);
+  const [error, setError] = useState<string>("");
   const { address, isConnected } = useAccount();
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
+
+  const handleConnect = async () => {
+    try {
+      setError(""); // Clear previous errors
+      await connect({ connector: injected() });
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to connect wallet";
+      setError(errorMessage);
+      console.error("Wallet connection error:", err);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    try {
+      setError(""); // Clear previous errors
+      await disconnect();
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to disconnect wallet";
+      setError(errorMessage);
+      console.error("Wallet disconnection error:", err);
+    }
+  };
 
   return (
     <div style={{ padding: "20px" }}>
@@ -18,12 +43,26 @@ function App() {
         {isConnected ? (
           <div>
             <p>Connected: {address}</p>
-            <button onClick={() => disconnect()}>Disconnect</button>
+            <button onClick={handleDisconnect}>Disconnect</button>
           </div>
         ) : (
-          <button onClick={() => connect({ connector: injected() })}>
-            Connect Wallet
-          </button>
+          <button onClick={handleConnect}>Connect Wallet</button>
+        )}
+
+        {/* Error Display */}
+        {error && (
+          <div
+            style={{
+              marginTop: "10px",
+              padding: "10px",
+              backgroundColor: "#FEE2E2",
+              border: "1px solid #FECACA",
+              borderRadius: "6px",
+              color: "#DC2626",
+            }}
+          >
+            <strong>Error:</strong> {error}
+          </div>
         )}
       </div>
 
