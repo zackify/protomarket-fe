@@ -1,5 +1,5 @@
 {
-  "name": "fe",
+  "name": "peer-bets",
   "module": "index.ts",
   "type": "module",
   "private": true,
@@ -11,6 +11,7 @@
     "@types/bun": "latest",
     "@types/react": "^19.1.9",
     "@types/react-dom": "^19.1.7",
+    "@wagmi/cli": "^2.4.0",
     "bun-plugin-tailwind": "^0.0.15"
   },
   "peerDependencies": {
