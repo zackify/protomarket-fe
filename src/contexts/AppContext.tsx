@@ -25,20 +25,42 @@ interface AppContextProviderProps {
 export const AppContextProvider: React.FC<AppContextProviderProps> = ({
   children,
 }) => {
+  // Initialize selectedChain from localStorage or default to monadTestnet
   const [selectedChain, setSelectedChain] = useState<
     typeof monadTestnet | typeof base
-  >(monadTestnet);
+  >(() => {
+    try {
+      const saved = localStorage.getItem("selectedChain");
+      if (saved) {
+        const chainId = JSON.parse(saved);
+        return chainId === base.id ? base : monadTestnet;
+      }
+    } catch (error) {
+      console.error("Failed to load selectedChain from localStorage:", error);
+    }
+    return monadTestnet;
+  });
+  
   const [contractVersion, setContractVersion] = useState<string>("V0");
 
   const currentChainId = useChainId();
   const { switchChain } = useSwitchChain();
   const { isConnected } = useAccount();
 
-  // Auto-switch to monadTestnet when wallet connects
+  // Save selectedChain to localStorage whenever it changes
   useEffect(() => {
-    if (isConnected) {
+    try {
+      localStorage.setItem("selectedChain", JSON.stringify(selectedChain.id));
+    } catch (error) {
+      console.error("Failed to save selectedChain to localStorage:", error);
+    }
+  }, [selectedChain]);
+
+  // Auto-switch to selected chain when wallet connects (but only if not already on the right chain)
+  useEffect(() => {
+    if (isConnected && currentChainId !== selectedChain.id) {
       // Small delay to ensure wallet connection is fully established
-      switchToChain(monadTestnet.id).catch(console.error);
+      switchToChain(selectedChain.id).catch(console.error);
     }
   }, [isConnected]);
 
