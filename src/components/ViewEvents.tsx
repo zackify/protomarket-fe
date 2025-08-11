@@ -5,6 +5,8 @@ import {
 } from "../generated";
 import { hexToString } from "viem";
 import { formatDistanceToNow } from "date-fns";
+import { useChainId } from "wagmi";
+import { monadTestnet } from "wagmi/chains";
 
 export function ViewEvents() {
   const events = useReadProtomarketEvents({
