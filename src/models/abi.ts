@@ -284,6 +284,38 @@ export const abi = [
   {
     inputs: [
       { internalType: "uint256", name: "_eventId", type: "uint256" },
+      { internalType: "uint256", name: "start", type: "uint256" },
+      { internalType: "uint256", name: "end", type: "uint256" },
+    ],
+    name: "getPredictionsRange",
+    outputs: [
+      {
+        components: [
+          { internalType: "uint256", name: "amount", type: "uint256" },
+          { internalType: "address", name: "playerA", type: "address" },
+          {
+            internalType: "enum PredictionPlatform.Outcome",
+            name: "outcomeA",
+            type: "uint8",
+          },
+          {
+            internalType: "enum PredictionPlatform.Outcome",
+            name: "outcomeB",
+            type: "uint8",
+          },
+          { internalType: "address", name: "playerB", type: "address" },
+        ],
+        internalType: "struct PredictionPlatform.Prediction[]",
+        name: "",
+        type: "tuple[]",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "uint256", name: "_eventId", type: "uint256" },
       { internalType: "uint256", name: "_predictionIndex", type: "uint256" },
     ],
     name: "matchPrediction",

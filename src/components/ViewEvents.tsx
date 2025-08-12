@@ -3,6 +3,7 @@ import {
   useReadProtomarketEvents,
   useReadProtomarketGetEventCount,
   useReadProtomarketGetEventsRange,
+  useReadProtomarketPredictions,
 } from "../generated";
 import { hexToString } from "viem";
 import { formatDistanceToNow } from "date-fns";
@@ -17,10 +18,11 @@ import {
 import { monadTestnet, mainnet } from "wagmi/chains";
 import { abi } from "../models/abi";
 import { coins } from "../models/coins";
+import { PredictionsView } from "./PredictionsView";
 
 // Creator display component with ENS support
 const CreatorDisplay: React.FC<{ address: string }> = ({ address }) => {
-  const { data: ensName } = useEnsName({
+  const { data: ensName, isLoading: ensNameLoading } = useEnsName({
     address: address as `0x${string}`,
     chainId: mainnet.id,
   });
@@ -35,14 +37,18 @@ const CreatorDisplay: React.FC<{ address: string }> = ({ address }) => {
 
   return (
     <div className="flex items-center space-x-2">
-      {ensAvatar && (
+      {ensNameLoading ? (
+        <div className="w-4 h-4"></div>
+      ) : ensAvatar ? (
         <img
           src={ensAvatar}
           alt="ENS Avatar"
-          className="w-4 h-4 rounded-full"
+          className="w-4 h-4 min-w-[1rem] min-h-[1rem] rounded-full"
         />
-      )}
-      <span className="text-green-400">{ensName || truncatedAddress}</span>
+      ) : null}
+      <span className="text-green-400 min-w-[70px] min-h-[0.75rem]">
+        {ensNameLoading ? "" : ensName || truncatedAddress}
+      </span>
     </div>
   );
 };
@@ -55,11 +61,21 @@ const PlaceBet: React.FC<{
   selectedOutcome: number;
   acceptedToken: string;
   onClose: () => void;
-}> = ({ eventIndex, outcomeA, outcomeB, selectedOutcome, acceptedToken, onClose }) => {
+}> = ({
+  eventIndex,
+  outcomeA,
+  outcomeB,
+  selectedOutcome,
+  acceptedToken,
+  onClose,
+}) => {
   const chainId = useChainId();
   const availableCoins = coins[chainId] || [];
-  const tokenInfo = availableCoins.find(coin => coin.address.toLowerCase() === acceptedToken.toLowerCase());
+  const tokenInfo = availableCoins.find(
+    (coin) => coin.address.toLowerCase() === acceptedToken.toLowerCase()
+  );
   const [betAmount, setBetAmount] = useState("");
+  const { address } = useAccount();
 
   const {
     data: hash,
@@ -71,6 +87,59 @@ const PlaceBet: React.FC<{
 
   const { isLoading: isConfirming, isSuccess: isConfirmed } =
     useWaitForTransactionReceipt({ hash });
+
+  // Fetch first 2 predictions to find opposite side matches
+  const prediction0 = useReadProtomarketPredictions({
+    args: [BigInt(eventIndex), 0n],
+  });
+  const prediction1 = useReadProtomarketPredictions({
+    args: [BigInt(eventIndex), 1n],
+  });
+
+  // Helper function to parse bytes32 to text
+  const parseBytes32ToText = (value: any): string => {
+    try {
+      if (typeof value === "string" && value.startsWith("0x")) {
+        return hexToString(value as `0x${string}`);
+      }
+      return String(value);
+    } catch (error) {
+      return String(value);
+    }
+  };
+
+  // Filter predictions that are unmatched and chose the opposite outcome
+  const oppositeOutcome = selectedOutcome === 0 ? 1 : 0;
+  const matchablePredictions: Array<{
+    amount: bigint;
+    playerA: string;
+    outcomeA: number;
+    outcomeB: number;
+    playerB: string;
+    index: number;
+  }> = [];
+
+  [prediction0, prediction1].forEach((pred, index) => {
+    if (pred?.data && pred.data[0] > 0n) {
+      const isUnmatched =
+        !pred.data[4] ||
+        pred.data[4] === "0x0000000000000000000000000000000000000000";
+      const isOppositeOutcome = Number(pred.data[2]) === oppositeOutcome;
+      const isNotSameUser =
+        address && pred.data[1].toLowerCase() !== address.toLowerCase();
+
+      if (isUnmatched && isOppositeOutcome && isNotSameUser) {
+        matchablePredictions.push({
+          amount: pred.data[0],
+          playerA: pred.data[1],
+          outcomeA: pred.data[2],
+          outcomeB: pred.data[3],
+          playerB: pred.data[4],
+          index: index,
+        });
+      }
+    }
+  });
 
   const placeBet = async () => {
     if (!betAmount || parseFloat(betAmount) <= 0) {
@@ -95,6 +164,21 @@ const PlaceBet: React.FC<{
     }
   };
 
+  const matchPrediction = async (predictionIndex: number, amount: bigint) => {
+    try {
+      writeContract({
+        address: "0x792a00E52B858E913d20B364D06CF89865Ad3f9b",
+        abi: abi,
+        functionName: "matchPrediction",
+        chainId: monadTestnet.id,
+        args: [BigInt(eventIndex), BigInt(predictionIndex)],
+        value: amount,
+      });
+    } catch (error) {
+      console.error("Match prediction error:", error);
+    }
+  };
+
   React.useEffect(() => {
     if (isConfirmed) {
       onClose();
@@ -110,9 +194,8 @@ const PlaceBet: React.FC<{
       <div className="bg-gray-900 rounded-lg p-6 border border-green-400/30 max-w-md w-full mx-4">
         <div className="mb-6">
           <h3 className="text-xl font-bold text-green-400 font-sharetech tracking-wider uppercase mb-2">
-            PLACE BET - EVENT #{eventIndex}
+            PLACE BET
           </h3>
-          <p className="text-gray-300 font-mono text-sm">You're betting on:</p>
         </div>
 
         {/* Selected Outcome Display */}
@@ -140,7 +223,7 @@ const PlaceBet: React.FC<{
         {/* Bet Amount Input */}
         <div className="mb-6">
           <label className="block text-sm font-mono text-green-400 mb-2">
-            BET AMOUNT ({tokenInfo?.symbol || 'TOKEN'})
+            BET AMOUNT ({tokenInfo?.symbol || "TOKEN"})
           </label>
           <input
             type="number"
@@ -152,9 +235,65 @@ const PlaceBet: React.FC<{
             className="w-full px-4 py-3 bg-gray-800 border border-green-400/20 rounded-lg text-white font-mono text-sm placeholder-gray-500 focus:outline-none focus:border-green-400/50 focus:ring-1 focus:ring-green-400/20"
           />
           <p className="text-xs text-gray-500 mt-1 font-mono">
-            Minimum: 0.001 {tokenInfo?.symbol || 'TOKEN'}
+            Minimum: 0.001 {tokenInfo?.symbol || "TOKEN"}
           </p>
         </div>
+
+        {/* Matchable Predictions Section */}
+        {matchablePredictions.length > 0 && (
+          <div className="mb-6 @container">
+            <h4 className="text-sm font-mono text-green-400 mb-3">
+              OR MATCH EXISTING PREDICTIONS
+            </h4>
+            <div className="space-y-2">
+              {matchablePredictions.map((prediction, index) => {
+                const outcomeNames = [outcomeA, outcomeB];
+                const playerOutcome = outcomeNames[Number(prediction.outcomeA)];
+
+                return (
+                  <div key={index} className="bg-gray-700/30 rounded-lg p-3">
+                    <div className="flex flex-col @md:flex-row @md:items-center @md:justify-between space-y-2 @md:space-y-0">
+                      <div className="flex flex-col @md:flex-row @md:items-center space-y-1 @md:space-y-0 @md:space-x-2">
+                        <CreatorDisplay address={prediction.playerA} />
+                        <div className="flex items-center justify-between @md:justify-start space-x-2">
+                          <span className="text-blue-400 text-xs font-mono bg-blue-900/20 px-2 py-1 rounded w-fit">
+                            {playerOutcome}
+                          </span>
+                          <button
+                            onClick={() =>
+                              matchPrediction(prediction.index, prediction.amount)
+                            }
+                            disabled={isPending}
+                            className="px-3 py-1 bg-purple-500/10 text-purple-400 border border-purple-400/30 rounded hover:bg-purple-500/20 hover:border-purple-400/50 transition-all duration-200 font-mono text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isPending ? "MATCHING..." : `BET ${outcomeNames[1 - Number(prediction.outcomeA)]}`}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-end @md:justify-start space-x-2">
+                        <span className="text-white font-mono text-sm">
+                          {(Number(prediction.amount) / 1e18).toFixed(4)}
+                        </span>
+                        {tokenInfo && (
+                          <div className="flex items-center space-x-1">
+                            <img
+                              src={tokenInfo.logo}
+                              alt={tokenInfo.name}
+                              className="w-4 h-4"
+                            />
+                            <span className="text-gray-400 text-xs">
+                              {tokenInfo.symbol}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="flex space-x-3">
           <button
@@ -349,17 +488,177 @@ const GradeEvent: React.FC<{
   );
 };
 
-export function ViewEvents() {
-  const { address } = useAccount();
+// EventItem component for individual event display
+const EventItem: React.FC<{
+  event: any;
+  eventIndex: number;
+  onBetClick: (
+    eventIndex: number,
+    outcomeA: string,
+    outcomeB: string,
+    selectedOutcome: number
+  ) => void;
+  userAddress?: string;
+}> = ({ event, eventIndex, onBetClick, userAddress }) => {
   const chainId = useChainId();
   const availableCoins = coins[chainId] || [];
-  const [gradingEventIndex, setGradingEventIndex] = useState<number | null>(
-    null
+  const [showGradeModal, setShowGradeModal] = useState(false);
+  const [showPredictions, setShowPredictions] = useState(false);
+
+  // Helper function to parse bytes32 to text
+  const parseBytes32ToText = (value: any): string => {
+    try {
+      if (typeof value === "string" && value.startsWith("0x")) {
+        return hexToString(value as `0x${string}`);
+      }
+      return String(value);
+    } catch (error) {
+      return String(value);
+    }
+  };
+
+  // Helper function to get token info
+  const getTokenInfo = (tokenAddress: string) => {
+    return availableCoins.find(
+      (coin) => coin.address.toLowerCase() === tokenAddress.toLowerCase()
+    );
+  };
+
+  // Helper function to format timestamp to time distance
+  const formatStartTime = (value: any): string => {
+    try {
+      const timestamp =
+        typeof value === "bigint" ? Number(value) * 1000 : Number(value) * 1000;
+      return formatDistanceToNow(new Date(timestamp), { addSuffix: true });
+    } catch (error) {
+      return String(value);
+    }
+  };
+
+  const outcomeA = parseBytes32ToText(event.outcomeA);
+  const outcomeB = parseBytes32ToText(event.outcomeB);
+  const startTime = formatStartTime(event.startTime);
+  const tokenInfo = getTokenInfo(event.acceptedToken);
+
+  if (showPredictions) {
+    return (
+      <PredictionsView
+        eventIndex={eventIndex}
+        eventData={event}
+        onBack={() => setShowPredictions(false)}
+      />
+    );
+  }
+
+  return (
+    <>
+      <div className="bg-gray-800/50 rounded-lg p-4 border border-green-400/10">
+        <div className="flex flex-col space-y-2 sm:flex-row sm:items-start sm:justify-between sm:space-y-0 mb-3">
+          <div className="flex-1">
+            <div className="flex items-center space-x-2 mb-2">
+              <span className="text-green-400 font-mono text-sm break-words">
+                STARTS {startTime.toUpperCase()}
+              </span>
+            </div>
+          </div>
+          <div className="text-xs text-gray-400 font-mono bg-gray-700/30 px-2 py-1 rounded flex items-center space-x-2 w-fit">
+            <span className="whitespace-nowrap">
+              {event.creatorFeePercent}% fee
+            </span>
+            {tokenInfo && (
+              <div className="flex items-center space-x-1">
+                <img
+                  src={tokenInfo.logo}
+                  alt={tokenInfo.name}
+                  className="w-3 h-3 flex-shrink-0"
+                />
+                <span className="text-gray-400 whitespace-nowrap">
+                  {tokenInfo.name}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          <div
+            onClick={() => onBetClick(eventIndex, outcomeA, outcomeB, 0)}
+            className="bg-blue-900/20 border border-blue-400/20 rounded px-3 py-3 cursor-pointer transition-all duration-200 hover:scale-105 hover:bg-blue-900/30 hover:border-blue-400/40 hover:shadow-lg hover:shadow-blue-400/20"
+          >
+            <div className="text-white break-words">{outcomeA}</div>
+          </div>
+          <div
+            onClick={() => onBetClick(eventIndex, outcomeA, outcomeB, 1)}
+            className="bg-purple-900/20 border border-purple-400/20 rounded px-3 py-3 cursor-pointer transition-all duration-200 hover:scale-105 hover:bg-purple-900/30 hover:border-purple-400/40 hover:shadow-lg hover:shadow-purple-400/20"
+          >
+            <div className="text-white break-words">{outcomeB}</div>
+          </div>
+        </div>
+
+        <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:justify-between sm:space-y-0 text-xs text-gray-400 font-mono mt-4">
+          <div className="flex items-center justify-between sm:justify-start space-x-2">
+            <button
+              onClick={() => setShowPredictions(true)}
+              className="px-2 py-1 bg-blue-500/10 text-blue-400 border border-blue-400/30 rounded hover:bg-blue-500/20 hover:border-blue-400/50 transition-all duration-200 font-mono text-xs font-semibold sm:inline hidden"
+            >
+              VIEW PREDICTIONS
+            </button>
+            <span className="text-xs text-gray-500 bg-gray-700/50 px-2 py-1 rounded w-fit">
+              {event.status === 0
+                ? "PENDING"
+                : event.status === 1
+                  ? "ACTIVE"
+                  : "RESOLVED"}
+            </span>
+          </div>
+          <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:space-y-0 sm:space-x-3">
+            <div className="flex items-center space-x-2 bg-gray-700/30 px-2 py-1 rounded">
+              <span className="text-gray-500 whitespace-nowrap">Creator:</span>
+              {event.creator ? (
+                <CreatorDisplay address={event.creator} />
+              ) : (
+                <span className="text-green-400">N/A</span>
+              )}
+            </div>
+            {event.creator &&
+              userAddress &&
+              event.creator.toLowerCase() === userAddress.toLowerCase() && (
+                <button
+                  onClick={() => setShowGradeModal(true)}
+                  className="px-3 py-1 bg-yellow-500/10 text-yellow-400 border border-yellow-400/30 rounded hover:bg-yellow-500/20 hover:border-yellow-400/50 transition-all duration-200 font-mono text-xs font-semibold w-full sm:w-auto"
+                >
+                  GRADE
+                </button>
+              )}
+          </div>
+        </div>
+
+        {/* View Predictions Button - Mobile Full Width */}
+        <div className="sm:hidden mt-2">
+          <button
+            onClick={() => setShowPredictions(true)}
+            className="w-full px-3 py-1 bg-blue-500/10 text-blue-400 border border-blue-400/30 rounded hover:bg-blue-500/20 hover:border-blue-400/50 transition-all duration-200 font-mono text-xs font-semibold"
+          >
+            VIEW PREDICTIONS
+          </button>
+        </div>
+      </div>
+
+      {/* Grade Event Modal */}
+      {showGradeModal && (
+        <GradeEvent
+          eventIndex={eventIndex}
+          outcomeA={outcomeA}
+          outcomeB={outcomeB}
+          onClose={() => setShowGradeModal(false)}
+        />
+      )}
+    </>
   );
-  const [gradingOutcomes, setGradingOutcomes] = useState<{
-    outcomeA: string;
-    outcomeB: string;
-  } | null>(null);
+};
+
+export function ViewEvents() {
+  const { address } = useAccount();
 
   // Betting state
   const [bettingEventIndex, setBettingEventIndex] = useState<number | null>(
@@ -398,35 +697,6 @@ export function ViewEvents() {
     eventCount.isLoading || eventsRange.isLoading || events.isLoading;
   const errors = [events.error, eventCount.error, eventsRange.error];
 
-  // Helper function to parse bytes32 to text
-  const parseBytes32ToText = (value: any): string => {
-    try {
-      if (typeof value === "string" && value.startsWith("0x")) {
-        return hexToString(value as `0x${string}`);
-      }
-      return String(value);
-    } catch (error) {
-      return String(value); // fallback to original value if parsing fails
-    }
-  };
-
-  // Helper function to get token info
-  const getTokenInfo = (tokenAddress: string) => {
-    return availableCoins.find(coin => coin.address.toLowerCase() === tokenAddress.toLowerCase());
-  };
-
-  // Helper function to format timestamp to time distance
-  const formatStartTime = (value: any): string => {
-    try {
-      // Convert BigInt timestamp to milliseconds (assuming it's in seconds)
-      const timestamp =
-        typeof value === "bigint" ? Number(value) * 1000 : Number(value) * 1000;
-      return formatDistanceToNow(new Date(timestamp), { addSuffix: true });
-    } catch (error) {
-      return String(value); // fallback to original value if parsing fails
-    }
-  };
-
   return (
     <div className="">
       <div className="flex items-center justify-between mb-6">
@@ -463,97 +733,24 @@ export function ViewEvents() {
 
       <div className="space-y-4">
         {eventsRange.data && eventsRange.data.length > 0
-          ? eventsRange.data.map((event, index) => {
-              const outcomeA = parseBytes32ToText(event.outcomeA);
-              const outcomeB = parseBytes32ToText(event.outcomeB);
-              const startTime = formatStartTime(event.startTime);
-
-              return (
-                <div
-                  key={index}
-                  className="bg-gray-800/50 rounded-lg p-4 border border-green-400/10"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <span className="text-green-400 font-mono text-sm">
-                          STARTS {startTime.toUpperCase()}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="text-xs text-gray-400 font-mono bg-gray-700/30 px-2 py-1 rounded flex items-center space-x-2">
-                      <span>{event.creatorFeePercent}% fee</span>
-                      {(() => {
-                        const tokenInfo = getTokenInfo(event.acceptedToken);
-                        return tokenInfo ? (
-                          <div className="flex items-center space-x-1">
-                            <img src={tokenInfo.logo} alt={tokenInfo.name} className="w-3 h-3" />
-                            <span className="text-gray-400">{tokenInfo.name}</span>
-                          </div>
-                        ) : null;
-                      })()}
-                    </div>
-                  </div>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                        <div
-                          onClick={() => {
-                            setBettingEventIndex(index);
-                            setBettingOutcomes({ outcomeA, outcomeB });
-                            setSelectedBetOutcome(0);
-                          }}
-                          className="bg-blue-900/20 border border-blue-400/20 rounded px-3 py-2 cursor-pointer transition-all duration-200 hover:scale-105 hover:bg-blue-900/30 hover:border-blue-400/40 hover:shadow-lg hover:shadow-blue-400/20"
-                        >
-                          <div className="text-white my-2">{outcomeA}</div>
-                        </div>
-                        <div
-                          onClick={() => {
-                            setBettingEventIndex(index);
-                            setBettingOutcomes({ outcomeA, outcomeB });
-                            setSelectedBetOutcome(1);
-                          }}
-                          className="bg-purple-900/20 border border-purple-400/20 rounded px-3 py-2 cursor-pointer transition-all duration-200 hover:scale-105 hover:bg-purple-900/30 hover:border-purple-400/40 hover:shadow-lg hover:shadow-purple-400/20"
-                        >
-                          <div className="text-white my-2">{outcomeB}</div>
-                        </div>
-                      </div>
-
-                  <div className="flex items-center justify-between text-xs text-gray-400 font-mono mt-4">
-                    <span className="text-xs text-gray-500 bg-gray-700/50 px-2 py-1 rounded">
-                      {event.status === 0
-                        ? "PENDING"
-                        : event.status === 1
-                          ? "ACTIVE"
-                          : "RESOLVED"}
-                    </span>
-                    <div className="flex items-center space-x-3">
-                      <div className="flex items-center space-x-2 bg-gray-700/30 px-2 py-1 rounded">
-                        <span className="text-gray-500">Creator:</span>
-                        {event.creator ? (
-                          <CreatorDisplay address={event.creator} />
-                        ) : (
-                          <span className="text-green-400">N/A</span>
-                        )}
-                        {event.creator &&
-                          address &&
-                          event.creator.toLowerCase() ===
-                            address.toLowerCase() && (
-                            <button
-                              onClick={() => {
-                                setGradingEventIndex(index);
-                                setGradingOutcomes({ outcomeA, outcomeB });
-                              }}
-                              className="ml-2 px-2 py-1 bg-yellow-500/10 text-yellow-400 border border-yellow-400/30 rounded hover:bg-yellow-500/20 hover:border-yellow-400/50 transition-all duration-200 font-mono text-xs font-semibold"
-                            >
-                              GRADE
-                            </button>
-                          )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
+          ? eventsRange.data.map((event, index) => (
+              <EventItem
+                key={index}
+                event={event}
+                eventIndex={index}
+                userAddress={address}
+                onBetClick={(
+                  eventIndex,
+                  outcomeA,
+                  outcomeB,
+                  selectedOutcome
+                ) => {
+                  setBettingEventIndex(eventIndex);
+                  setBettingOutcomes({ outcomeA, outcomeB });
+                  setSelectedBetOutcome(selectedOutcome);
+                }}
+              />
+            ))
           : !isLoading && (
               <div className="text-center py-8">
                 <div className="text-gray-500 font-mono">No events found</div>
@@ -570,7 +767,9 @@ export function ViewEvents() {
             outcomeA={bettingOutcomes.outcomeA}
             outcomeB={bettingOutcomes.outcomeB}
             selectedOutcome={selectedBetOutcome}
-            acceptedToken={eventsRange.data?.[bettingEventIndex]?.acceptedToken || ''}
+            acceptedToken={
+              eventsRange.data?.[bettingEventIndex]?.acceptedToken || ""
+            }
             onClose={() => {
               setBettingEventIndex(null);
               setBettingOutcomes(null);
@@ -578,19 +777,6 @@ export function ViewEvents() {
             }}
           />
         )}
-
-      {/* Grade Event Modal */}
-      {gradingEventIndex !== null && gradingOutcomes && (
-        <GradeEvent
-          eventIndex={gradingEventIndex}
-          outcomeA={gradingOutcomes.outcomeA}
-          outcomeB={gradingOutcomes.outcomeB}
-          onClose={() => {
-            setGradingEventIndex(null);
-            setGradingOutcomes(null);
-          }}
-        />
-      )}
     </div>
   );
 }

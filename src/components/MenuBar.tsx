@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   useAccount,
   useConnect,
@@ -26,12 +26,13 @@ export const MenuBar: React.FC = () => {
   const { address, isConnected } = useAccount();
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  const { data: ensName } = useEnsName({
+  const { data: ensName, isLoading: ensNameLoading } = useEnsName({
     address,
     chainId: mainnet.id,
   });
-  const { data: ensAvatar } = useEnsAvatar({
+  const { data: ensAvatar, isLoading: ensAvatarLoading } = useEnsAvatar({
     name: ensName || undefined,
     chainId: mainnet.id,
   });
@@ -66,9 +67,11 @@ export const MenuBar: React.FC = () => {
 
   const handleConnect = async () => {
     try {
+      setConnectionError(null);
       await connect({ connector: injected() });
     } catch (error) {
       console.error("Failed to connect wallet:", error);
+      setConnectionError(error instanceof Error ? error.message : "Failed to connect wallet");
     }
   };
 
@@ -79,60 +82,70 @@ export const MenuBar: React.FC = () => {
   return (
     <div className="w-full border-b border-green-400/20 mb-8">
       <div className="py-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col space-y-4 md:flex-row md:items-center md:justify-between md:space-y-0">
           <div className="flex items-center space-x-4">
-            <h1 className="text-3xl font-bold text-green-400 font-sharetech tracking-widest uppercase">
-              PEERBET
+            <h1 className="text-2xl md:text-3xl font-bold text-green-400 font-sharetech tracking-widest uppercase">
+              P33RPR3DICT
             </h1>
           </div>
 
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-3">
+          <div className="flex flex-col space-y-3 md:flex-row md:items-center md:space-y-0 md:space-x-4 flex-1 md:flex-none">
+            <div className="flex items-center space-x-3 w-full md:w-auto">
               <Dropdown
                 options={contractVersionOptions}
                 selectedValue={contractVersion}
                 onSelect={setContractVersion}
-                className="w-24"
+                className="w-20 flex-shrink-0"
               />
-            </div>
-
-            <div className="flex items-center space-x-3">
               <Dropdown
                 options={chainOptions}
                 selectedValue={selectedChain.id.toString()}
                 onSelect={handleChainChange}
-                className="w-50"
+                className="flex-1 md:flex-none"
               />
             </div>
 
             {isConnected ? (
-              <div className="flex items-center space-x-3">
+              <div className="flex flex-col space-y-2 md:flex-row md:items-center md:space-y-0 md:space-x-3">
                 <div className="flex items-center space-x-2 bg-gray-800 rounded-lg px-3 py-2 border border-green-400/20">
-                  {ensAvatar && (
+                  {ensNameLoading ? (
+                    <div className="w-6 h-6"></div>
+                  ) : ensAvatar ? (
                     <img
                       src={ensAvatar}
                       alt="ENS Avatar"
-                      className="w-6 h-6 rounded-full"
+                      className="w-6 h-6 min-w-[1.5rem] min-h-[1.5rem] rounded-full"
                     />
-                  )}
-                  <span className="text-sm text-green-400 font-mono">
-                    {ensName || (address ? formatAddress(address) : "")}
+                  ) : null}
+                  <span className="text-sm text-green-400 font-mono min-w-[80px] min-h-[1rem]">
+                    {ensNameLoading
+                      ? ""
+                      : ensName || (address ? formatAddress(address) : "")}
                   </span>
                 </div>
                 <button
                   onClick={() => disconnect()}
-                  className="px-3 py-2 text-xs font-mono text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded-lg transition-colors border border-red-400/20 hover:border-red-400/40"
+                  className="px-3 py-2 text-xs font-mono text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded-lg transition-colors border border-red-400/20 hover:border-red-400/40 w-full md:w-auto"
                 >
                   DISCONNECT
                 </button>
               </div>
             ) : (
-              <button
-                onClick={handleConnect}
-                className="px-4 py-2 bg-green-400/10 text-green-400 border border-green-400/30 rounded-lg hover:bg-green-400/20 hover:border-green-400/50 transition-all duration-200 font-mono text-sm font-semibold shadow-lg hover:shadow-green-400/20"
-              >
-                CONNECT WALLET
-              </button>
+              <div className="w-full md:w-auto">
+                <button
+                  onClick={handleConnect}
+                  className="px-4 py-2 bg-green-400/10 text-green-400 border border-green-400/30 rounded-lg hover:bg-green-400/20 hover:border-green-400/50 transition-all duration-200 font-mono text-sm font-semibold shadow-lg hover:shadow-green-400/20 w-full md:w-auto"
+                >
+                  CONNECT WALLET
+                </button>
+                {connectionError && (
+                  <div className="mt-2 bg-red-900/20 border border-red-400/30 rounded-lg p-2">
+                    <div className="text-red-400 font-mono text-xs">
+                      {connectionError}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
