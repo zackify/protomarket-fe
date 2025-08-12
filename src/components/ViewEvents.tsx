@@ -477,16 +477,24 @@ export function ViewEvents() {
                     <div className="flex-1">
                       <div className="flex items-center space-x-2 mb-2">
                         <span className="text-green-400 font-mono text-sm">
-                          EVENT #{index}
-                        </span>
-                        <span className="text-xs text-gray-500 bg-gray-700/50 px-2 py-1 rounded">
-                          {event.status === 0
-                            ? "PENDING"
-                            : event.status === 1
-                              ? "ACTIVE"
-                              : "RESOLVED"}
+                          STARTS {startTime.toUpperCase()}
                         </span>
                       </div>
+                    </div>
+                    <div className="text-xs text-gray-400 font-mono bg-gray-700/30 px-2 py-1 rounded flex items-center space-x-2">
+                      <span>{event.creatorFeePercent}% fee</span>
+                      {(() => {
+                        const tokenInfo = getTokenInfo(event.acceptedToken);
+                        return tokenInfo ? (
+                          <div className="flex items-center space-x-1">
+                            <img src={tokenInfo.logo} alt={tokenInfo.name} className="w-3 h-3" />
+                            <span className="text-gray-400">{tokenInfo.name}</span>
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                  </div>
+                      
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                         <div
                           onClick={() => {
@@ -509,27 +517,16 @@ export function ViewEvents() {
                           <div className="text-white my-2">{outcomeB}</div>
                         </div>
                       </div>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center justify-between text-xs text-gray-400 font-mono">
-                    <div>
-                      <span className="text-gray-500">Starts:</span> {startTime}
-                    </div>
+                  <div className="flex items-center justify-between text-xs text-gray-400 font-mono mt-4">
+                    <span className="text-xs text-gray-500 bg-gray-700/50 px-2 py-1 rounded">
+                      {event.status === 0
+                        ? "PENDING"
+                        : event.status === 1
+                          ? "ACTIVE"
+                          : "RESOLVED"}
+                    </span>
                     <div className="flex items-center space-x-3">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-gray-500">Fee:</span>{" "}
-                        {event.creatorFeePercent}%
-                        {(() => {
-                          const tokenInfo = getTokenInfo(event.acceptedToken);
-                          return tokenInfo ? (
-                            <div className="flex items-center space-x-1 text-xs">
-                              <img src={tokenInfo.logo} alt={tokenInfo.name} className="w-3 h-3" />
-                              <span className="text-gray-400">{tokenInfo.name}</span>
-                            </div>
-                          ) : null;
-                        })()}
-                      </div>
                       <div className="flex items-center space-x-2 bg-gray-700/30 px-2 py-1 rounded">
                         <span className="text-gray-500">Creator:</span>
                         {event.creator ? (
