@@ -7,11 +7,19 @@ import {
   useEnsAvatar,
   useAccount,
   useWaitForTransactionReceipt,
+  useWriteContract,
 } from "wagmi";
 import { mainnet } from "wagmi/chains";
 import { coins } from "../models/coins";
 import { PredictionsView } from "./PredictionsView";
-import { useReadProtomarketGetPredictionsRange, useReadProtomarketEvents, useReadProtomarketGetEventCount, useReadProtomarketGetEventsRange, useWriteProtomarket } from "../generated";
+import { contractVersions } from "../contexts/contractVersions";
+import {
+  useReadProtomarketGetPredictionsRange,
+  useReadProtomarketEvents,
+  useReadProtomarketGetEventCount,
+  useReadProtomarketGetEventsRange,
+  useWriteProtomarket,
+} from "../generated";
 
 // Creator display component with ENS support
 const CreatorDisplay: React.FC<{ address: string }> = ({ address }) => {
@@ -68,6 +76,7 @@ const PlaceBet: React.FC<{
     (coin) => coin.address.toLowerCase() === acceptedToken.toLowerCase()
   );
   const [betAmount, setBetAmount] = useState("");
+  const [needsApproval, setNeedsApproval] = useState(true);
   const { address } = useAccount();
 
   const {
@@ -81,15 +90,23 @@ const PlaceBet: React.FC<{
   const { isLoading: isConfirming, isSuccess: isConfirmed } =
     useWaitForTransactionReceipt({ hash });
 
+  // Separate hook for ERC20 approvals
+  const {
+    data: approvalHash,
+    writeContract: writeApproval,
+    isPending: isApproving,
+  } = useWriteContract();
+
   // Fetch latest 25 predictions for this event
-  const { data: predictionsData, isLoading: isPredictionsLoading } = useReadProtomarketGetPredictionsRange({
-    args: [BigInt(eventIndex), 0n, 25n], // eventId, start, end
-  });
+  const { data: predictionsData, isLoading: isPredictionsLoading } =
+    useReadProtomarketGetPredictionsRange({
+      args: [BigInt(eventIndex), 0n, 25n], // eventId, start, end
+    });
 
   // Process predictions data
   const predictions = React.useMemo(() => {
     if (!predictionsData || !Array.isArray(predictionsData)) return [];
-    
+
     return predictionsData
       .map((pred, index: number) => {
         if (pred.amount > 0n) {
@@ -107,18 +124,6 @@ const PlaceBet: React.FC<{
       .filter((pred): pred is NonNullable<typeof pred> => pred !== null);
   }, [predictionsData]);
 
-  // Helper function to parse bytes32 to text
-  const parseBytes32ToText = (value: any): string => {
-    try {
-      if (typeof value === "string" && value.startsWith("0x")) {
-        return hexToString(value as `0x${string}`);
-      }
-      return String(value);
-    } catch (error) {
-      return String(value);
-    }
-  };
-
   // Filter predictions that are unmatched and chose the opposite outcome
   const oppositeOutcome = selectedOutcome === 0 ? 1 : 0;
   const matchablePredictions = React.useMemo(() => {
@@ -135,6 +140,38 @@ const PlaceBet: React.FC<{
     });
   }, [predictions, oppositeOutcome, address]);
 
+  const approveToken = async () => {
+    if (!betAmount || parseFloat(betAmount) <= 0) {
+      alert("Please enter a valid bet amount");
+      return;
+    }
+
+    try {
+      const amountWei = BigInt(Math.floor(parseFloat(betAmount) * 1e18));
+      //@ts-ignore
+      const contractAddress = contractVersions.V0[chainId];
+
+      writeApproval({
+        address: acceptedToken as `0x${string}`,
+        abi: [
+          {
+            name: "approve",
+            type: "function",
+            inputs: [
+              { name: "spender", type: "address" },
+              { name: "amount", type: "uint256" },
+            ],
+            outputs: [{ name: "", type: "bool" }],
+          },
+        ],
+        functionName: "approve",
+        args: [contractAddress, amountWei],
+      });
+    } catch (error) {
+      console.error("Approve error:", error);
+    }
+  };
+
   const placeBet = async () => {
     if (!betAmount || parseFloat(betAmount) <= 0) {
       alert("Please enter a valid bet amount");
@@ -148,7 +185,10 @@ const PlaceBet: React.FC<{
       writeContract({
         functionName: "placePrediction",
         args: [BigInt(eventIndex), selectedOutcome, amountWei],
-        value: amountWei,
+        value:
+          acceptedToken === "0x0000000000000000000000000000000000000000"
+            ? amountWei
+            : 0n,
       });
     } catch (error) {
       console.error("Place bet error:", error);
@@ -172,6 +212,12 @@ const PlaceBet: React.FC<{
       onClose();
     }
   }, [isConfirmed, onClose]);
+
+  React.useEffect(() => {
+    if (approvalHash) {
+      setNeedsApproval(false);
+    }
+  }, [approvalHash]);
 
   const outcomes = [outcomeA, outcomeB];
   const colors = ["blue", "purple"];
@@ -295,13 +341,24 @@ const PlaceBet: React.FC<{
           >
             Cancel
           </button>
-          <button
-            onClick={placeBet}
-            disabled={isPending || !betAmount || parseFloat(betAmount) <= 0}
-            className="flex-1 px-4 py-2 bg-green-400/10 text-green-400 border border-green-400/30 rounded-lg hover:bg-green-400/20 hover:border-green-400/50 transition-all duration-200 font-mono text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isPending ? "PLACING BET..." : "PLACE BET"}
-          </button>
+          {needsApproval &&
+          acceptedToken !== "0x0000000000000000000000000000000000000000" ? (
+            <button
+              onClick={approveToken}
+              disabled={isApproving || !betAmount || parseFloat(betAmount) <= 0}
+              className="flex-1 px-4 py-2 bg-yellow-400/10 text-yellow-400 border border-yellow-400/30 rounded-lg hover:bg-yellow-400/20 hover:border-yellow-400/50 transition-all duration-200 font-mono text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isApproving ? "APPROVING..." : "APPROVE TOKEN"}
+            </button>
+          ) : (
+            <button
+              onClick={placeBet}
+              disabled={isPending || !betAmount || parseFloat(betAmount) <= 0}
+              className="flex-1 px-4 py-2 bg-green-400/10 text-green-400 border border-green-400/30 rounded-lg hover:bg-green-400/20 hover:border-green-400/50 transition-all duration-200 font-mono text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isPending ? "PLACING BET..." : "PLACE BET"}
+            </button>
+          )}
         </div>
 
         {/* Transaction Status */}
@@ -547,7 +604,7 @@ const EventItem: React.FC<{
           <div className="flex-1">
             <div className="flex items-center space-x-2 mb-2">
               <span className="text-green-400 font-mono text-sm break-words">
-                {event.title}
+                {parseBytes32ToText(event.title)}
               </span>
             </div>
           </div>
