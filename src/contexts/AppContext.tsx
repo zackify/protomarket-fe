@@ -3,17 +3,18 @@ import React, {
   useContext,
   useState,
   useEffect,
-  ReactNode,
+  type ReactNode,
 } from "react";
+
 import { useChainId, useSwitchChain, useAccount } from "wagmi";
 import { monadTestnet, base } from "wagmi/chains";
+import { contractVersions } from "./contractVersions";
 
 export interface AppContextType {
   selectedChain: typeof monadTestnet | typeof base;
-  contractVersion: string;
   setSelectedChain: (chain: typeof monadTestnet | typeof base) => void;
-  setContractVersion: (version: string) => void;
   switchToChain: (chainId: number) => Promise<void>;
+  address: `0x${string}`;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -40,8 +41,6 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({
     }
     return monadTestnet;
   });
-  
-  const [contractVersion, setContractVersion] = useState<string>("V0");
 
   const currentChainId = useChainId();
   const { switchChain } = useSwitchChain();
@@ -77,9 +76,9 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({
 
   const contextValue: AppContextType = {
     selectedChain,
-    contractVersion,
+    // @ts-ignore - temporary until base chain address is added
+    address: contractVersions.V0[selectedChain.id] as `0x${string}`,
     setSelectedChain,
-    setContractVersion,
     switchToChain,
   };
 

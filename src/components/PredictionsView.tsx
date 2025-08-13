@@ -1,17 +1,16 @@
 import React, { useState } from "react";
-import { useReadProtomarketPredictions } from "../generated";
+import { useReadProtomarketGetPredictionsRange, useWriteProtomarket } from "../generated";
 import { hexToString } from "viem";
 import {
   useChainId,
   useEnsName,
   useEnsAvatar,
   useAccount,
-  useWriteContract,
   useWaitForTransactionReceipt,
 } from "wagmi";
 import { mainnet, monadTestnet } from "wagmi/chains";
 import { coins } from "../models/coins";
-import { abi } from "../models/abi";
+import { useAppContext } from "../contexts/AppContext";
 
 // Creator display component with ENS support
 const CreatorDisplay: React.FC<{ address: string }> = ({ address }) => {
@@ -64,7 +63,7 @@ export const PredictionsView: React.FC<{
     isPending,
     error: writeError,
     isError: isWriteError,
-  } = useWriteContract();
+  } = useWriteProtomarket();
 
   const { isLoading: isConfirming, isSuccess: isConfirmed } =
     useWaitForTransactionReceipt({ hash });
@@ -92,30 +91,15 @@ export const PredictionsView: React.FC<{
   const outcomeB = parseBytes32ToText(eventData.outcomeB);
   const tokenInfo = getTokenInfo(eventData.acceptedToken);
 
-  // Fetch predictions for multiple indices (0-4 should be enough for most cases)
-  const prediction0 = useReadProtomarketPredictions({
-    args: [BigInt(eventIndex), 0n],
-  });
-  const prediction1 = useReadProtomarketPredictions({
-    args: [BigInt(eventIndex), 1n],
-  });
-  const prediction2 = useReadProtomarketPredictions({
-    args: [BigInt(eventIndex), 2n],
-  });
-  const prediction3 = useReadProtomarketPredictions({
-    args: [BigInt(eventIndex), 3n],
-  });
-  const prediction4 = useReadProtomarketPredictions({
-    args: [BigInt(eventIndex), 4n],
+  // Fetch latest 25 predictions using getPredictionsRange
+  const { data: predictionsData, isLoading: isPredictionsLoading } = useReadProtomarketGetPredictionsRange({
+    args: [BigInt(eventIndex), 0n, 25n], // eventId, start, end (latest 25)
   });
 
   const matchPrediction = async (predictionIndex: number, amount: bigint) => {
     try {
       writeContract({
-        address: "0x792a00E52B858E913d20B364D06CF89865Ad3f9b",
-        abi: abi,
         functionName: "matchPrediction",
-        chainId: monadTestnet.id,
         args: [BigInt(eventIndex), BigInt(predictionIndex)],
         value: amount,
       });
@@ -125,44 +109,30 @@ export const PredictionsView: React.FC<{
   };
 
   React.useEffect(() => {
-    const allPredictions = [
-      prediction0,
-      prediction1,
-      prediction2,
-      prediction3,
-      prediction4,
-    ];
-    const loadedPredictions = [];
+    if (predictionsData && Array.isArray(predictionsData)) {
+      const loadedPredictions = predictionsData
+        .map((pred, index: number) => {
+          // Check if prediction has valid amount (greater than 0)
+          if (pred.amount > 0n) {
+            return {
+              amount: pred.amount,
+              playerA: pred.playerA,
+              outcomeA: pred.outcomeA,
+              outcomeB: pred.outcomeB,
+              playerB: pred.playerB,
+              index: index, // Store the prediction index
+            };
+          }
+          return null;
+        })
+        .filter((pred): pred is NonNullable<typeof pred> => pred !== null); // Remove null entries
 
-    for (let i = 0; i < allPredictions.length; i++) {
-      const pred = allPredictions[i];
-      if (pred?.data && pred.data[0] > 0n) {
-        // Check if amount is greater than 0
-        loadedPredictions.push({
-          amount: pred.data[0],
-          playerA: pred.data[1],
-          outcomeA: pred.data[2],
-          outcomeB: pred.data[3],
-          playerB: pred.data[4],
-          index: i, // Store the prediction index
-        });
-      }
+      setPredictions(loadedPredictions);
+    } else {
+      setPredictions([]);
     }
-
-    setPredictions(loadedPredictions);
-    setIsLoading(allPredictions.some((pred) => pred.isLoading));
-  }, [
-    prediction0.data,
-    prediction1.data,
-    prediction2.data,
-    prediction3.data,
-    prediction4.data,
-    prediction0.isLoading,
-    prediction1.isLoading,
-    prediction2.isLoading,
-    prediction3.isLoading,
-    prediction4.isLoading,
-  ]);
+    setIsLoading(isPredictionsLoading);
+  }, [predictionsData, isPredictionsLoading]);
 
   return (
     <div className="bg-gray-800/50 rounded-lg p-4 border border-green-400/10">

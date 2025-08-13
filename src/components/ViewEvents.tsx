@@ -1,10 +1,4 @@
 import React, { useState } from "react";
-import {
-  useReadProtomarketEvents,
-  useReadProtomarketGetEventCount,
-  useReadProtomarketGetEventsRange,
-  useReadProtomarketPredictions,
-} from "../generated";
 import { hexToString } from "viem";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -12,13 +6,12 @@ import {
   useEnsName,
   useEnsAvatar,
   useAccount,
-  useWriteContract,
   useWaitForTransactionReceipt,
 } from "wagmi";
-import { monadTestnet, mainnet } from "wagmi/chains";
-import { abi } from "../models/abi";
+import { mainnet } from "wagmi/chains";
 import { coins } from "../models/coins";
 import { PredictionsView } from "./PredictionsView";
+import { useReadProtomarketGetPredictionsRange, useReadProtomarketEvents, useReadProtomarketGetEventCount, useReadProtomarketGetEventsRange, useWriteProtomarket } from "../generated";
 
 // Creator display component with ENS support
 const CreatorDisplay: React.FC<{ address: string }> = ({ address }) => {
@@ -83,18 +76,36 @@ const PlaceBet: React.FC<{
     isPending,
     error: writeError,
     isError: isWriteError,
-  } = useWriteContract();
+  } = useWriteProtomarket();
 
   const { isLoading: isConfirming, isSuccess: isConfirmed } =
     useWaitForTransactionReceipt({ hash });
 
-  // Fetch first 2 predictions to find opposite side matches
-  const prediction0 = useReadProtomarketPredictions({
-    args: [BigInt(eventIndex), 0n],
+  // Fetch latest 25 predictions for this event
+  const { data: predictionsData, isLoading: isPredictionsLoading } = useReadProtomarketGetPredictionsRange({
+    args: [BigInt(eventIndex), 0n, 25n], // eventId, start, end
   });
-  const prediction1 = useReadProtomarketPredictions({
-    args: [BigInt(eventIndex), 1n],
-  });
+
+  // Process predictions data
+  const predictions = React.useMemo(() => {
+    if (!predictionsData || !Array.isArray(predictionsData)) return [];
+    
+    return predictionsData
+      .map((pred, index: number) => {
+        if (pred.amount > 0n) {
+          return {
+            amount: pred.amount,
+            playerA: pred.playerA,
+            outcomeA: pred.outcomeA,
+            outcomeB: pred.outcomeB,
+            playerB: pred.playerB,
+            index: index,
+          };
+        }
+        return null;
+      })
+      .filter((pred): pred is NonNullable<typeof pred> => pred !== null);
+  }, [predictionsData]);
 
   // Helper function to parse bytes32 to text
   const parseBytes32ToText = (value: any): string => {
@@ -110,36 +121,19 @@ const PlaceBet: React.FC<{
 
   // Filter predictions that are unmatched and chose the opposite outcome
   const oppositeOutcome = selectedOutcome === 0 ? 1 : 0;
-  const matchablePredictions: Array<{
-    amount: bigint;
-    playerA: string;
-    outcomeA: number;
-    outcomeB: number;
-    playerB: string;
-    index: number;
-  }> = [];
-
-  [prediction0, prediction1].forEach((pred, index) => {
-    if (pred?.data && pred.data[0] > 0n) {
+  const matchablePredictions = React.useMemo(() => {
+    return predictions.filter((pred): pred is NonNullable<typeof pred> => {
+      if (!pred) return false;
       const isUnmatched =
-        !pred.data[4] ||
-        pred.data[4] === "0x0000000000000000000000000000000000000000";
-      const isOppositeOutcome = Number(pred.data[2]) === oppositeOutcome;
+        !pred.playerB ||
+        pred.playerB === "0x0000000000000000000000000000000000000000";
+      const isOppositeOutcome = Number(pred.outcomeA) === oppositeOutcome;
       const isNotSameUser =
-        address && pred.data[1].toLowerCase() !== address.toLowerCase();
+        !address || pred.playerA.toLowerCase() !== address.toLowerCase();
 
-      if (isUnmatched && isOppositeOutcome && isNotSameUser) {
-        matchablePredictions.push({
-          amount: pred.data[0],
-          playerA: pred.data[1],
-          outcomeA: pred.data[2],
-          outcomeB: pred.data[3],
-          playerB: pred.data[4],
-          index: index,
-        });
-      }
-    }
-  });
+      return isUnmatched && isOppositeOutcome && isNotSameUser;
+    });
+  }, [predictions, oppositeOutcome, address]);
 
   const placeBet = async () => {
     if (!betAmount || parseFloat(betAmount) <= 0) {
@@ -152,10 +146,7 @@ const PlaceBet: React.FC<{
       const amountWei = BigInt(Math.floor(parseFloat(betAmount) * 1e18));
 
       writeContract({
-        address: "0x792a00E52B858E913d20B364D06CF89865Ad3f9b",
-        abi: abi,
         functionName: "placePrediction",
-        chainId: monadTestnet.id,
         args: [BigInt(eventIndex), selectedOutcome, amountWei],
         value: amountWei,
       });
@@ -167,10 +158,7 @@ const PlaceBet: React.FC<{
   const matchPrediction = async (predictionIndex: number, amount: bigint) => {
     try {
       writeContract({
-        address: "0x792a00E52B858E913d20B364D06CF89865Ad3f9b",
-        abi: abi,
         functionName: "matchPrediction",
-        chainId: monadTestnet.id,
         args: [BigInt(eventIndex), BigInt(predictionIndex)],
         value: amount,
       });
@@ -261,12 +249,17 @@ const PlaceBet: React.FC<{
                           </span>
                           <button
                             onClick={() =>
-                              matchPrediction(prediction.index, prediction.amount)
+                              matchPrediction(
+                                prediction.index,
+                                prediction.amount
+                              )
                             }
                             disabled={isPending}
                             className="px-3 py-1 bg-purple-500/10 text-purple-400 border border-purple-400/30 rounded hover:bg-purple-500/20 hover:border-purple-400/50 transition-all duration-200 font-mono text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {isPending ? "MATCHING..." : `BET ${outcomeNames[1 - Number(prediction.outcomeA)]}`}
+                            {isPending
+                              ? "MATCHING..."
+                              : `BET ${outcomeNames[1 - Number(prediction.outcomeA)]}`}
                           </button>
                         </div>
                       </div>
@@ -363,7 +356,7 @@ const GradeEvent: React.FC<{
     isPending,
     error: writeError,
     isError: isWriteError,
-  } = useWriteContract();
+  } = useWriteProtomarket();
 
   const { isLoading: isConfirming, isSuccess: isConfirmed } =
     useWaitForTransactionReceipt({ hash });
@@ -376,10 +369,7 @@ const GradeEvent: React.FC<{
 
     try {
       writeContract({
-        address: "0x792a00E52B858E913d20B364D06CF89865Ad3f9b",
-        abi: abi,
         functionName: "resolveEvent",
-        chainId: monadTestnet.id,
         args: [BigInt(eventIndex), selectedOutcome],
       });
     } catch (error) {
@@ -557,7 +547,7 @@ const EventItem: React.FC<{
           <div className="flex-1">
             <div className="flex items-center space-x-2 mb-2">
               <span className="text-green-400 font-mono text-sm break-words">
-                STARTS {startTime.toUpperCase()}
+                {event.title}
               </span>
             </div>
           </div>
@@ -603,13 +593,19 @@ const EventItem: React.FC<{
             >
               VIEW PREDICTIONS
             </button>
+
             <span className="text-xs text-gray-500 bg-gray-700/50 px-2 py-1 rounded w-fit">
-              {event.status === 0
-                ? "PENDING"
-                : event.status === 1
-                  ? "ACTIVE"
-                  : "RESOLVED"}
+              STARTS {startTime.toUpperCase()}
             </span>
+            {new Date() > new Date(Number(event.startTime) * 1000) && (
+              <span className="text-xs text-yellow-500 bg-gray-700/50 px-2 py-1 rounded w-fit">
+                {event.status === 0
+                  ? "PENDING GRADING"
+                  : event.status === 1
+                    ? "ACTIVE"
+                    : "RESOLVED"}
+              </span>
+            )}
           </div>
           <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:space-y-0 sm:space-x-3">
             <div className="flex items-center space-x-2 bg-gray-700/30 px-2 py-1 rounded">

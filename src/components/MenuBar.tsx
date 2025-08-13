@@ -37,12 +37,8 @@ export const MenuBar: React.FC = () => {
     chainId: mainnet.id,
   });
 
-  const { selectedChain, contractVersion, setContractVersion, switchToChain } =
-    useAppContext();
+  const { selectedChain, switchToChain } = useAppContext();
 
-  const contractVersionOptions: DropdownOption[] = [
-    { value: "V0", label: "V0" },
-  ];
 
   const chainOptions: DropdownOption[] = [
     {
@@ -91,12 +87,6 @@ export const MenuBar: React.FC = () => {
 
           <div className="flex flex-col space-y-3 md:flex-row md:items-center md:space-y-0 md:space-x-4 flex-1 md:flex-none">
             <div className="flex items-center space-x-3 w-full md:w-auto">
-              <Dropdown
-                options={contractVersionOptions}
-                selectedValue={contractVersion}
-                onSelect={setContractVersion}
-                className="w-20 flex-shrink-0"
-              />
               <Dropdown
                 options={chainOptions}
                 selectedValue={selectedChain.id.toString()}
