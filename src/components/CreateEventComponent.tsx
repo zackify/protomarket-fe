@@ -9,6 +9,7 @@ import { monadTestnet } from "wagmi/chains";
 import { coins, type Coin } from "../models/coins";
 import { Dropdown, type DropdownOption } from "./Dropdown";
 import { useAppContext } from "../contexts/AppContext";
+import { useWriteProtomarket } from "../generated";
 
 export function CreateEventComponent() {
   const { isConnected } = useAccount();
@@ -30,7 +31,7 @@ export function CreateEventComponent() {
     isPending,
     error: writeError,
     isError: isWriteError,
-  } = useWriteContract();
+  } = useWriteProtomarket();
 
   const { isLoading: isConfirming, isSuccess: isConfirmed } =
     useWaitForTransactionReceipt({ hash });
@@ -79,10 +80,7 @@ export function CreateEventComponent() {
       );
 
       const result = writeContract({
-        address,
-        abi,
         functionName: "createEvents",
-        chainId: selectedChain.id,
         args: [
           [
             {
